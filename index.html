@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR Generator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<style>
+body{font-family:system-ui,sans-serif;background:#f1f1f1;margin:0;padding:16px;display:flex;justify-content:center}
+.card{background:#fff;max-width:420px;width:100%;padding:20px;border-radius:12px;box-shadow:0 2px 8px #0002}
+h2{margin-top:0}
+label{display:block;margin:12px 0 4px;font-size:14px;color:#444}
+input[type=text]{width:100%;box-sizing:border-box;padding:10px;font-size:16px;border:1px solid #bbb;border-radius:6px}
+button,.btn{display:inline-block;background:#4fd0ff;color:#fff;font-weight:700;border:0;border-radius:6px;padding:12px 16px;margin:12px 8px 0 0;font-size:15px;cursor:pointer}
+#qr{background:#fff;padding:20px;display:flex;justify-content:center;margin-top:16px}
+#txt{word-break:break-all;font-size:14px;color:#333;margin-top:10px;text-align:center}
+video{width:100%;margin-top:10px;display:none;border-radius:8px}
+#msg{color:#c00;font-size:13px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>QR Generator</h2>
+
+  <button onclick="startCam()">📷 Scan QR/Barcode</button>
+  <label class="btn" style="margin-right:0">🖼 Upload image<input type="file" accept="image/*" hidden onchange="fromFile(this.files[0])"></label>
+  <video id="video" playsinline></video>
+  <div id="msg"></div>
+
+  <label>GR No</label><input type="text" id="grno" placeholder="M00690">
+  <label>Name</label><input type="text" id="name" placeholder="CHOPSINGH SHANKAR SAHU">
+  <label>Centre</label><input type="text" id="centre" placeholder="Raipur">
+
+  <button onclick="gen()">Generate QR</button>
+  <button onclick="dl()">Save</button>
+
+  <div id="qr"></div>
+  <div id="txt"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let qr, stream, scanning = false;
+
+function gen(){
+  const data = JSON.stringify({grno:$('grno').value.trim(), name:$('name').value.trim(), centre:$('centre').value.trim()});
+  $('qr').innerHTML = '';
+  qr = new QRCode($('qr'), {text:data, width:300, height:300, correctLevel:QRCode.CorrectLevel.M});
+  $('txt').textContent = data;
+}
+
+function dl(){
+  const c = $('qr').querySelector('canvas');
+  if(!c) return gen();
+  const a = document.createElement('a');
+  a.href = c.toDataURL('image/png');
+  a.download = ($('grno').value || 'qr') + '.png';
+  a.click();
+}
+
+function fill(text){
+  try{
+    const o = JSON.parse(text);
+    $('grno').value = o.grno || '';
+    $('name').value = o.name || '';
+    $('centre').value = o.centre || '';
+    $('msg').textContent = '';
+    gen();
+  }catch(e){
+    $('msg').textContent = 'Scanned: ' + text + ' (not in our format, put in GR No)';
+    $('grno').value = text;
+  }
+}
+
+function fromFile(f){
+  if(!f) return;
+  const img = new Image();
+  img.onload = async () => {
+    const c = document.createElement('canvas');
+    c.width = img.width; c.height = img.height;
+    const x = c.getContext('2d'); x.drawImage(img,0,0);
+    if('BarcodeDetector' in window){
+      try{
+        const r = await new BarcodeDetector().detect(c);
+        if(r.length) return fill(r[0].rawValue);
+      }catch(e){}
+    }
+    const d = x.getImageData(0,0,c.width,c.height);
+    const code = jsQR(d.data, d.width, d.height);
+    code ? fill(code.data) : $('msg').textContent = 'No QR found in image.';
+  };
+  img.src = URL.createObjectURL(f);
+}
+
+async function startCam(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+  }catch(e){ $('msg').textContent = 'Camera blocked. Use localhost or HTTPS and allow camera.'; return; }
+  const v = $('video'); v.srcObject = stream; v.style.display = 'block'; await v.play();
+  scanning = true;
+  const det = 'BarcodeDetector' in window ? new BarcodeDetector() : null;
+  const c = document.createElement('canvas'), x = c.getContext('2d');
+  (async function loop(){
+    if(!scanning) return;
+    if(v.videoWidth){
+      c.width = v.videoWidth; c.height = v.videoHeight; x.drawImage(v,0,0);
+      let val = null;
+      if(det){ try{ const r = await det.detect(c); if(r.length) val = r[0].rawValue; }catch(e){} }
+      if(!val){ const d = x.getImageData(0,0,c.width,c.height); const k = jsQR(d.data,d.width,d.height); if(k) val = k.data; }
+      if(val){ stopCam(); return fill(val); }
+    }
+    requestAnimationFrame(loop);
+  })();
+}
+function stopCam(){
+  scanning = false;
+  if(stream) stream.getTracks().forEach(t => t.stop());
+  $('video').style.display = 'none';
+}
+</script>
+</body>
+</html>
